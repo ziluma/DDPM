@@ -56,7 +56,7 @@ class Down(nn.Module):
         self.down = nn.Conv2d(out_ch, out_ch, 4, stride=2, padding=1)
     
     def forward(self, x, t):
-        # x: (B, Ci, H, W)
+        # x: (B, Ci, H, W), t: (B, E)
         x = self.block(x, t)    # (B, Co, H, W)
         skip = x            # (B, Co, H, W)
         x = self.down(x)    # (B, Co, H//2, W//2)
@@ -71,7 +71,9 @@ class Up(nn.Module):
         self.block = ResBlock(out_ch<<1, out_ch, config)
     
     def forward(self, x, skip, t):
-        # x: (B, Ci, H//2, W//2), skip: (B, Co, H, W)
+        # x: (B, Ci, H//2, W//2)
+        # skip: (B, Co, H, W)
+        # t: (B, E)
         x = self.up(x)      # (B, Co, H, W)
         x = torch.cat([x, skip], dim=1) # (B, 2Co, H, W)
         x = self.block(x, t)    # (B, Co, H, W)
@@ -83,8 +85,8 @@ class UNet(nn.Module):
     def __init__(
         self, 
         config: DiffusionConfig,
-        ch_img: int = 1,
-        ch_base: int = 64,
+        ch_img: int = 1,    # grayscale MNIST
+        ch_base: int = 64,  
         ch_mults: tuple[int] = (1, 2, 2)
     ):
         super().__init__()
@@ -118,17 +120,18 @@ class UNet(nn.Module):
         )
 
     def forward(self, x, t):
-        t = self.t_mlp(t)
-        x = self.init_conv(x)
+        # x: (B, 1, 28, 28), t: (B,)
+        t = self.t_mlp(t)       # (B, E)
+        x = self.init_conv(x)   # (B, c0, 28, 28)  
 
-        x, skip1 = self.down1(x, t)
-        x, skip2 = self.down2(x, t)
+        x, skip1 = self.down1(x, t) # (B, c0, 14, 14), skip1: (B, c0, 28, 28)
+        x, skip2 = self.down2(x, t) # (B, c1, 7, 7), skip2: (B, c1, 14, 14)
 
-        x = self.mid1(x, t)
-        x = self.mid2(x, t)
+        x = self.mid1(x, t)     # (B, c2, 7, 7)
+        x = self.mid2(x, t)     # (B, c1, 7, 7)
 
-        x = self.up2(x, skip2, t)
-        x = self.up1(x, skip1, t)
+        x = self.up2(x, skip2, t)   # (B, c0, 14, 14)
+        x = self.up1(x, skip1, t)   # (B, c0, 28, 28)
 
-        return self.final(x)
+        return self.final(x)    # (B, 1, 28, 28)
 
