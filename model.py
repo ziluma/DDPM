@@ -28,13 +28,13 @@ class ResBlock(nn.Module):
             Rearrange('b c -> b c 1 1')
         )
         self.block1 = nn.Sequential(
-            nn.GroupNorm(config.n_gp, out_ch),
+            nn.GroupNorm(config.n_gp, in_ch),
             self.act(),
             nn.Conv2d(in_ch, out_ch, 3, padding=1)
         )
         self.block2 = nn.Sequential(
             nn.GroupNorm(config.n_gp, out_ch),
-            self.act,
+            self.act(),
             nn.Dropout(config.dropout),
             nn.Conv2d(out_ch, out_ch, 3, padding=1)
         )
@@ -68,14 +68,14 @@ class Up(nn.Module):
     def __init__(self, in_ch, out_ch, config: DiffusionConfig):
         super().__init__()
         self.up = nn.ConvTranspose2d(in_ch, out_ch, 4, stride=2, padding=1)
-        self.block = ResBlock(out_ch<<1, out_ch, config)
+        self.block = ResBlock(out_ch+in_ch, out_ch, config)
     
     def forward(self, x, skip, t):
         # x: (B, Ci, H//2, W//2)
-        # skip: (B, Co, H, W)
+        # skip: (B, Ci, H, W)
         # t: (B, E)
         x = self.up(x)      # (B, Co, H, W)
-        x = torch.cat([x, skip], dim=1) # (B, 2Co, H, W)
+        x = torch.cat([x, skip], dim=1) # (B, Ci+Co, H, W)
         x = self.block(x, t)    # (B, Co, H, W)
         return x
         
@@ -120,7 +120,7 @@ class UNet(nn.Module):
         )
 
     def forward(self, x, t):
-        # x: (B, 1, 28, 28), t: (B,)
+        # x: (B, 1, 28, 28), t: (B,) on MNIST
         t = self.t_mlp(t)       # (B, E)
         x = self.init_conv(x)   # (B, c0, 28, 28)  
 
@@ -148,6 +148,7 @@ if __name__ == '__main__':
     model = UNet(config).to(device)
     B = 8
     x = torch.randn(B, 1, 28, 28).to(device)
-    t = torch.randint(config.timesteps, (B,)).to(device)
+    t = torch.randint(config.timesteps, (B,), dtype=torch.long).to(device)
     y = model(x, t)
+    print("success!")
 
