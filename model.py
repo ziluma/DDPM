@@ -12,8 +12,8 @@ class DiffusionConfig:
     dropout = .1
     act = nn.SiLU
     timesteps = 100
-    beta_init = 1e-4
-    beta_end = .02
+    beta_init = 1e-2
+    beta_end = .45
 
 
 class ResBlock(nn.Module):
@@ -136,19 +136,53 @@ class UNet(nn.Module):
         return self.final(x)    # (B, 1, 28, 28)
     
 
+class Diffusion:
+    def __init__(self, config: DiffusionConfig, device):
+        self.config = config 
+        T = config.timesteps
+        self.betas = torch.linspace(
+            config.beta_init,
+            config.beta_end,
+            T, dtype=torch.float32).to(device)
+        self.alphas = torch.sqrt(1.0 - self.betas ** 2) 
+        self.alphas_bar = torch.cumprod(self.alphas, dim=0)
+        # self.betas_bar = torch.sqrt(1.0 - self.alphas_bar ** 2) 
+
+    def forward_sample(self, x0, t, noise=None):
+        '''Sample from p(x_t | x_0) i.e. q in DDPM paper'''
+        # x0: (B, C, H, W), t: (B,)
+        if noise is None:
+            noise = torch.randn_like(x0)
+        alpha_bar_t = torch.gather(self.alphas_bar, 0, t)
+        beta_bar_t = torch.sqrt(1.0 - alpha_bar_t**2)
+
+        return alpha_bar_t * x0 + beta_bar_t * noise
+
+    @torch.no_grad()
+    def back_sample(self, model, x_t, t):
+        '''backward/decoding process: x_t -> x_{t-1}'''
+        noise = torch.randn_like(x_t)
+        
+
+
+# import sys; sys.exit(0)
+
 if __name__ == '__main__':
     config = DiffusionConfig()
 
-    device = torch.device('cpu')
+    device = 'cpu'
     if torch.cuda.is_available():
-        device = torch.device('cuda')
+        device = 'cuda'
     elif torch.backends.mps.is_available():
-        device = torch.device('mps')
+        device = 'mps'
 
     model = UNet(config).to(device)
     B = 8
     x = torch.randn(B, 1, 28, 28).to(device)
     t = torch.randint(config.timesteps, (B,), dtype=torch.long).to(device)
     y = model(x, t)
-    print("success!")
+
+    diffusion = Diffusion(config, device)
+
+    print('ha')
 
