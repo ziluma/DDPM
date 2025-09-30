@@ -11,9 +11,9 @@ class DiffusionConfig:
     n_gp = 8
     dropout = .1
     act = nn.SiLU
-    timesteps = 100
-    beta_init = 1e-2
-    beta_end = .45
+    T = 100
+    beta_1 = 1e-2
+    beta_T = .45
 
 
 class ResBlock(nn.Module):
@@ -93,7 +93,7 @@ class UNet(nn.Module):
 
         E = config.n_t_emb
         self.t_mlp = nn.Sequential(
-            nn.Embedding(config.timesteps, config.n_t_emb),
+            nn.Embedding(config.T, config.n_t_emb),
             nn.Linear(E, E<<2),
             config.act(),
             nn.Linear(E<<2, E)
@@ -136,32 +136,37 @@ class UNet(nn.Module):
         return self.final(x)    # (B, 1, 28, 28)
     
 
-class Diffusion:
-    def __init__(self, config: DiffusionConfig, device):
-        self.config = config 
-        T = config.timesteps
-        self.betas = torch.linspace(
-            config.beta_init,
-            config.beta_end,
-            T, dtype=torch.float32).to(device)
-        self.alphas = torch.sqrt(1.0 - self.betas ** 2) 
-        self.alphas_bar = torch.cumprod(self.alphas, dim=0)
-        # self.betas_bar = torch.sqrt(1.0 - self.alphas_bar ** 2) 
+class Diffuser(nn.Module):
+    def __init__(self, model, config: DiffusionConfig, device):
+        super().__init__()
+        self.model = model.to(device)
+        self.T = config.T
+        self.device = device 
+        betas = torch.linspace(config.beta_1, config.beta_T, config.T).double()
+        alphas = torch.sqrt(1. - betas ** 2)
+        alphas_bar = torch.cumprod(alphas, dim=0) 
+        betas_bar = torch.sqrt(1. - alphas_bar ** 2)
+        self.register_buffer('alphas_bar', alphas_bar)
+        self.register_buffer('betas_bar', betas_bar)
 
-    def forward_sample(self, x0, t, noise=None):
-        '''Sample from p(x_t | x_0) i.e. q in DDPM paper'''
-        # x0: (B, C, H, W), t: (B,)
-        if noise is None:
-            noise = torch.randn_like(x0)
-        alpha_bar_t = torch.gather(self.alphas_bar, 0, t)
-        beta_bar_t = torch.sqrt(1.0 - alpha_bar_t**2)
+    def forward(self, x0):
+        t = torch.randint(self.T, size=(x0.shape[0],), device=x0.device)
+        x0 = torch.flatten(x0)
+        noise = torch.randn(x0)
+        alphas = torch.gather(self.alphas_bar, 0, t)
+        betas = torch.gather(self.betas_bar, 0, t)
+        x_t = alphas * x0 + betas * noise
+        loss = F.mse_loss(
+            self.model(x_t, t),
+            noise,
+            reduction='none'
+        )
 
-        return alpha_bar_t * x0 + beta_bar_t * noise
+        return loss
 
     @torch.no_grad()
-    def back_sample(self, model, x_t, t):
-        '''backward/decoding process: x_t -> x_{t-1}'''
-        noise = torch.randn_like(x_t)
+    def sample(self, n_samples=10):
+        pass
         
 
 
@@ -179,10 +184,10 @@ if __name__ == '__main__':
     model = UNet(config).to(device)
     B = 8
     x = torch.randn(B, 1, 28, 28).to(device)
-    t = torch.randint(config.timesteps, (B,), dtype=torch.long).to(device)
+    t = torch.randint(config.T, (B,), dtype=torch.long).to(device)
     y = model(x, t)
 
-    diffusion = Diffusion(config, device)
+    diffusion = Diffuser(model, config, device)
 
     print('ha')
 
