@@ -134,4 +134,20 @@ class UNet(nn.Module):
         x = self.up1(x, skip1, t)   # (B, c0, 28, 28)
 
         return self.final(x)    # (B, 1, 28, 28)
+    
+
+if __name__ == '__main__':
+    config = DiffusionConfig()
+
+    device = torch.device('cpu')
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+
+    model = UNet(config).to(device)
+    B = 8
+    x = torch.randn(B, 1, 28, 28).to(device)
+    t = torch.randint(config.timesteps, (B,)).to(device)
+    y = model(x, t)
 
