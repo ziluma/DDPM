@@ -17,11 +17,8 @@ class DiffusionConfig:
 
 
 class ResBlock(nn.Module):
-    def __init__(self, 
-        in_ch: int, 
-        out_ch: int, 
-        config: DiffusionConfig
-    ):
+
+    def __init__(self, in_ch, out_ch, config: DiffusionConfig):
         super().__init__()
         self.act = config.act 
         self.dropout = config.dropout
@@ -33,7 +30,7 @@ class ResBlock(nn.Module):
         self.block1 = nn.Sequential(
             nn.GroupNorm(config.n_gp, out_ch),
             self.act(),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1)
+            nn.Conv2d(in_ch, out_ch, 3, padding=1)
         )
         self.block2 = nn.Sequential(
             nn.GroupNorm(config.n_gp, out_ch),
@@ -43,42 +40,46 @@ class ResBlock(nn.Module):
         )
         self.res_conv = nn.Conv2d(in_ch, out_ch, 1) if in_ch!=out_ch else nn.Identity()
     
-    
     def forward(self, x, t):
-        # x: (B, C, H, W), t: (B, E)
+        # x: (B, Ci, H, W), t: (B, E)
         h = self.block1(x)
         h = h + self.t_mlp(t)   # t-> (B, C, 1, 1)
         h = self.block2(h)
-        return h + self.res_conv(x)
+        return h + self.res_conv(x) # (B, C, H, W)
+
 
 class Down(nn.Module):
+
     def __init__(self, in_ch, out_ch, config: DiffusionConfig):
         super().__init__()
         self.block = ResBlock(in_ch, out_ch, config)
         self.down = nn.Conv2d(out_ch, out_ch, 4, stride=2, padding=1)
     
     def forward(self, x, t):
-        x = self.block(x, t)
-        skip = x
-        x = self.down(x)
+        # x: (B, Ci, H, W)
+        x = self.block(x, t)    # (B, Co, H, W)
+        skip = x            # (B, Co, H, W)
+        x = self.down(x)    # (B, Co, H//2, W//2)
         return x, skip
 
+
 class Up(nn.Module):
+
     def __init__(self, in_ch, out_ch, config: DiffusionConfig):
         super().__init__()
         self.up = nn.ConvTranspose2d(in_ch, out_ch, 4, stride=2, padding=1)
         self.block = ResBlock(out_ch<<1, out_ch, config)
     
     def forward(self, x, skip, t):
-        x = self.up(x)
-        x = torch.cat([x, skip], dim=1)
-        x = self.block(x, t)
+        # x: (B, Ci, H//2, W//2), skip: (B, Co, H, W)
+        x = self.up(x)      # (B, Co, H, W)
+        x = torch.cat([x, skip], dim=1) # (B, 2Co, H, W)
+        x = self.block(x, t)    # (B, Co, H, W)
         return x
-
         
 
-
 class UNet(nn.Module):
+
     def __init__(
         self, 
         config: DiffusionConfig,
@@ -101,5 +102,33 @@ class UNet(nn.Module):
 
         self.init_conv = nn.Conv2d(ch_img, c0, 3, padding=1)
 
-        self.down1 = Down(c0, c0)
+        self.down1 = Down(c0, c0, config)
+        self.down2 = Down(c0, c1, config)
+
+        self.mid1 = ResBlock(c1, c2, config)
+        self.mid2 = ResBlock(c2, c1, config)
+
+        self.up2 = Up(c1, c0, config)
+        self.up1 = Up(c0, c0, config)
+
+        self.final = nn.Sequential(
+            nn.GroupNorm(config.n_gp, c0),
+            config.act(),
+            nn.Conv2d(c0, ch_img, 3, padding=1)
+        )
+
+    def forward(self, x, t):
+        t = self.t_mlp(t)
+        x = self.init_conv(x)
+
+        x, skip1 = self.down1(x, t)
+        x, skip2 = self.down2(x, t)
+
+        x = self.mid1(x, t)
+        x = self.mid2(x, t)
+
+        x = self.up2(x, skip2, t)
+        x = self.up1(x, skip1, t)
+
+        return self.final(x)
 
