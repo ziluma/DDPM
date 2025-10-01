@@ -14,6 +14,7 @@ class DiffusionConfig:
     T = 100
     beta_1 = 1e-2
     beta_T = .45
+    img_shape = [1, 28, 28]
 
 
 class ResBlock(nn.Module):
@@ -144,30 +145,42 @@ class Diffuser(nn.Module):
         super().__init__()
         self.model = model.to(device)
         self.T = config.T
+        self.shape = config.img_shape
         betas = torch.linspace(config.beta_1, config.beta_T, config.T, dtype=torch.float32)
         alphas = torch.sqrt(1. - betas ** 2)
         alphas_bar = torch.cumprod(alphas, dim=0) 
         betas_bar = torch.sqrt(1. - alphas_bar ** 2)
+        mu_eps_coef = betas**2 / betas_bar / alphas
+
         self.register_buffer('alphas_bar', alphas_bar)
         self.register_buffer('betas_bar', betas_bar)
+        self.register_buffer('alphas_recip', 1. / alphas)
+        self.register_buffer('mu_eps_coef', mu_eps_coef)
 
         self.to(device)
 
     def forward(self, x0):
+        ''' Algo 1 '''
         t = torch.randint(self.T, size=(x0.shape[0],), device=x0.device)
-        print(x0.shape)
         noise = torch.randn_like(x0, dtype=torch.float32)
         alphas = extract(self.alphas_bar, t, x0.shape)
         betas = extract(self.betas_bar, t, x0.shape)
-        print(alphas.shape)
         x_t = alphas * x0 + betas * noise
         loss = F.mse_loss( self.model(x_t, t), noise, reduction='none')
 
         return loss
 
     @torch.no_grad()
-    def sample(self, n_samples=10):
-        pass
+    def sample(self, n_samples=2):
+        ''' Algo 2 '''
+        x = torch.randn([n_samples]+self.shape).to(self.device)
+        t = torch.ones([n_samples]+[1]*len(self.shape))
+        for step in range(self.T, -1, -1):
+            eps = torch.randn_like(x) if step>0 else 0 
+            mu = self.alphas_recip * x - self.mu_eps_coef * eps
+            x = mu + eps
+
+
         
 
 
