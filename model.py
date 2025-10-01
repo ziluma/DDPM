@@ -135,32 +135,33 @@ class UNet(nn.Module):
 
         return self.final(x)    # (B, 1, 28, 28)
     
+def extract(v, ix, shape):
+    out = torch.gather(v, dim=0, index=ix)
+    return out.view([shape[0]] + [1]*(len(shape)-1))
 
 class Diffuser(nn.Module):
     def __init__(self, model, config: DiffusionConfig, device):
         super().__init__()
         self.model = model.to(device)
         self.T = config.T
-        self.device = device 
-        betas = torch.linspace(config.beta_1, config.beta_T, config.T).double()
+        betas = torch.linspace(config.beta_1, config.beta_T, config.T, dtype=torch.float32)
         alphas = torch.sqrt(1. - betas ** 2)
         alphas_bar = torch.cumprod(alphas, dim=0) 
         betas_bar = torch.sqrt(1. - alphas_bar ** 2)
         self.register_buffer('alphas_bar', alphas_bar)
         self.register_buffer('betas_bar', betas_bar)
 
+        self.to(device)
+
     def forward(self, x0):
         t = torch.randint(self.T, size=(x0.shape[0],), device=x0.device)
-        x0 = torch.flatten(x0)
-        noise = torch.randn(x0)
-        alphas = torch.gather(self.alphas_bar, 0, t)
-        betas = torch.gather(self.betas_bar, 0, t)
+        print(x0.shape)
+        noise = torch.randn_like(x0, dtype=torch.float32)
+        alphas = extract(self.alphas_bar, t, x0.shape)
+        betas = extract(self.betas_bar, t, x0.shape)
+        print(alphas.shape)
         x_t = alphas * x0 + betas * noise
-        loss = F.mse_loss(
-            self.model(x_t, t),
-            noise,
-            reduction='none'
-        )
+        loss = F.mse_loss( self.model(x_t, t), noise, reduction='none')
 
         return loss
 
@@ -188,6 +189,7 @@ if __name__ == '__main__':
     y = model(x, t)
 
     diffusion = Diffuser(model, config, device)
+    diffusion(x)
 
     print('ha')
 
