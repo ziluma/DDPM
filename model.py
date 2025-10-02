@@ -136,9 +136,12 @@ class UNet(nn.Module):
 
         return self.final(x)    # (B, 1, 28, 28)
     
-def extract(v, ix, shape):
-    out = torch.gather(v, dim=0, index=ix)
-    return out.view([shape[0]] + [1]*(len(shape)-1))
+def gather(x, ix):
+    return rearrange(
+        torch.gather(x, dim=0, index=ix), 
+        'b -> b 1 1 1'
+    )
+    # return out.view([shape[0]] + [1]*(len(shape)-1))
 
 class Diffuser(nn.Module):
     def __init__(self, model, config: DiffusionConfig, device):
@@ -152,11 +155,14 @@ class Diffuser(nn.Module):
         alphas_bar = torch.cumprod(alphas, dim=0) 
         betas_bar = torch.sqrt(1. - alphas_bar ** 2)
         mu_eps_coef = betas**2 / betas_bar / alphas
+        betas_til = betas / betas_bar
+        betas_til[1:] *= betas_bar[:-1]
 
         self.register_buffer('alphas_bar', alphas_bar)
         self.register_buffer('betas_bar', betas_bar)
         self.register_buffer('alphas_recip', 1. / alphas)
         self.register_buffer('mu_eps_coef', mu_eps_coef)
+        self.register_buffer('betas_til', betas_til)
 
         self.to(device)
 
@@ -164,27 +170,36 @@ class Diffuser(nn.Module):
         ''' Algo 1 '''
         t = torch.randint(self.T, size=(x0.shape[0],), device=x0.device)
         noise = torch.randn_like(x0, dtype=torch.float32)
-        alphas = extract(self.alphas_bar, t, x0.shape)
-        betas = extract(self.betas_bar, t, x0.shape)
+        alphas = gather(self.alphas_bar, t)
+        betas = gather(self.betas_bar, t)
         x_t = alphas * x0 + betas * noise
         loss = F.mse_loss( self.model(x_t, t), noise, reduction='none')
 
         return loss
 
     @torch.no_grad()
+    def sample_step(self, x, t): 
+        ''' Sample one step: X_t -> X_{t-1}'''
+        # x: (B, C, H, W), t: int 0 ... T-1
+        assert 0 <= t < self.T, "time out of range!"
+
+        t_cur = torch.full((B,), t, device=x.device, dtype=torch.long)
+        eps = self.mode(x, t_cur)
+        a = gather(self.alphas_recip, t_cur)
+        b = gather(self.mu_eps_coef, t_cur)
+        z = torch.randn_like(x) if t>0 else 0
+        mu = a * x - b * eps
+        sigma = gather(self.betas_til, t_cur)
+
+        return mu + sigma * z
+
+    @torch.no_grad()
     def sample(self, n_samples=2):
         ''' Algo 2 '''
         x = torch.randn([n_samples]+self.shape).to(self.device)
-        t = torch.ones(n_samples, dtype=torch.long).to(self.device)
-        for step in range(self.T-1, -1, -1):
-            t_cur = t * step
-            eps = self.model(x, t_cur)
-            a = extract(self.alphas_recip, t_cur, x.shape)
-            b = extract(self.mu_eps_coef, t_cur, x.shape)
-            z = torch.randn_like(x) if step>0 else torch.zeros_like(x) 
-            mu = a * x - b * eps
-            sigma = extract(self.betas_bar, t_cur, x.shape)
-            x = mu + sigma * z.to(self.device)
+        for t in range(self.T-1, -1, -1):
+            x = self.sample_step(x, t)
+            
         return x
 
 
