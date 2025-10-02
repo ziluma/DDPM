@@ -183,8 +183,8 @@ class Diffuser(nn.Module):
         # x: (B, C, H, W), t: int 0 ... T-1
         assert 0 <= t < self.T, "time out of range!"
 
-        t_cur = torch.full((B,), t, device=x.device, dtype=torch.long)
-        eps = self.mode(x, t_cur)
+        t_cur = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
+        eps = self.model(x, t_cur)
         a = gather(self.alphas_recip, t_cur)
         b = gather(self.mu_eps_coef, t_cur)
         z = torch.randn_like(x) if t>0 else 0
