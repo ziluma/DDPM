@@ -187,10 +187,10 @@ class Diffuser(nn.Module):
             x = mu + sigma * z.to(self.device)
         return x
 
-        
-
 
 # import sys; sys.exit(0)
+
+# sanity checks
 
 if __name__ == '__main__':
     config = DiffusionConfig()
@@ -207,11 +207,19 @@ if __name__ == '__main__':
     t = torch.randint(config.T, (B,), dtype=torch.long).to(device)
     y = model(x, t)
 
-    diffusion = Diffuser(model, config, device)
-    diffusion(x)
+    diffuser = Diffuser(model, config, device)
+    diffuser(x)
 
-    x = diffusion.sample()
-    print(x.shape)
+    x = diffuser.sample()
 
-    print('ha')
+    import matplotlib.pyplot as plt
+
+    # assume x is your output tensor (2,1,28,28)
+    imgs = x[:2].cpu().detach()  # move to CPU and detach from graph if needed
+
+    fig, axes = plt.subplots(1, 2, figsize=(6,3))
+    for i, ax in enumerate(axes):
+        ax.imshow(imgs[i,0], cmap='gray')  # take batch i, channel 0
+        ax.axis('off')
+    plt.show()
 
