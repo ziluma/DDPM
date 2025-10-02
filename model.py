@@ -146,6 +146,7 @@ class Diffuser(nn.Module):
         self.model = model.to(device)
         self.T = config.T
         self.shape = config.img_shape
+        self.device = device
         betas = torch.linspace(config.beta_1, config.beta_T, config.T, dtype=torch.float32)
         alphas = torch.sqrt(1. - betas ** 2)
         alphas_bar = torch.cumprod(alphas, dim=0) 
@@ -174,12 +175,17 @@ class Diffuser(nn.Module):
     def sample(self, n_samples=2):
         ''' Algo 2 '''
         x = torch.randn([n_samples]+self.shape).to(self.device)
-        t = torch.ones([n_samples]+[1]*len(self.shape))
-        for step in range(self.T, -1, -1):
-            eps = torch.randn_like(x) if step>0 else 0 
-            mu = self.alphas_recip * x - self.mu_eps_coef * eps
-            x = mu + eps
-
+        t = torch.ones(n_samples, dtype=torch.long).to(self.device)
+        for step in range(self.T-1, -1, -1):
+            t_cur = t * step
+            eps = self.model(x, t_cur)
+            a = extract(self.alphas_recip, t_cur, x.shape)
+            b = extract(self.mu_eps_coef, t_cur, x.shape)
+            z = torch.randn_like(x) if step>0 else torch.zeros_like(x) 
+            mu = a * x - b * eps
+            sigma = extract(self.betas_bar, t_cur, x.shape)
+            x = mu + sigma * z.to(self.device)
+        return x
 
         
 
@@ -203,6 +209,9 @@ if __name__ == '__main__':
 
     diffusion = Diffuser(model, config, device)
     diffusion(x)
+
+    x = diffusion.sample()
+    print(x.shape)
 
     print('ha')
 
