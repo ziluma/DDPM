@@ -225,6 +225,8 @@ if __name__ == '__main__':
     diffuser = Diffuser(model, config, device)
     diffuser(x)
 
+    print(f"betas_bar: {diffuser.betas_bar[:5]}")
+
     x = diffuser.sample()
 
     import matplotlib.pyplot as plt
