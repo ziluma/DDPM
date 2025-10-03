@@ -7,11 +7,11 @@ from dataclasses import dataclass
 
 @dataclass
 class DiffusionConfig:
-    n_t_emb = 128
+    n_t_emb = 64
     n_gp = 8
     dropout = .1
     act = nn.SiLU
-    T = 100
+    T = 10
     beta_1 = 1e-2
     beta_T = .45
     img_shape = [1, 28, 28]
