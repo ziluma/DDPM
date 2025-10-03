@@ -56,12 +56,23 @@ for epoch in range(1, n_epochs+1):
         global_step += 1
 
     with torch.no_grad():
-        samples = diffuser.sample(4)
+        samples = diffuser.sample(16)
         samples = (samples + 1.) / 2.
-        grid = vutils.make_grid(samples, nrow=2)
+        grid = vutils.make_grid(samples, nrow=4)
         out_path = os.path.join(sample_dir, f"samples_epoch_{epoch:03d}.png")
         vutils.save_image(grid, out_path)
         print(f"Saved {out_path}")
-    break
+
+# final checkpoint
+ckpt_path = os.path.join(check_dir, "ddpm_mnist.pt")
+torch.save({
+    "model": model.state_dict(),
+    "cfg": {
+        "timesteps": config.T,
+        "beta_start": config.beta_1,
+        "beta_end": config.beta_T,
+    },
+}, ckpt_path)
+print(f"Saved checkpoint to {ckpt_path}")
 
 
