@@ -1,20 +1,22 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 from einops import rearrange
 from einops.layers.torch import Rearrange
 from dataclasses import dataclass
 
 @dataclass
 class DiffusionConfig:
-    n_t_emb = 64
-    n_gp = 8
+    n_t_emb = 128
+    n_gp = 32
     dropout = .1
     act = nn.SiLU
-    T = 10
+    T = 500
     beta_1 = 1e-2
     beta_T = .45
     img_shape = [1, 28, 28]
+    device = 'mps'
 
 
 class ResBlock(nn.Module):
@@ -80,6 +82,17 @@ class Up(nn.Module):
         x = self.block(x, t)    # (B, Co, H, W)
         return x
         
+def SinusPosEmb(timesteps, config):
+    # timesteps: (B,)
+    D = config.n_t_emb
+    assert D % 2 == 0, "Time embedding dimension must be even."
+    d = D // 2
+    freqs = torch.exp(
+        - math.log(config.T) * torch.arange(0, d, dtype=torch.float32, device=timesteps.device) / d
+    )
+    args = timesteps.float().unsqueeze(-1) * freqs.unsqueeze(0)
+
+    return torch.cat([torch.sin(args), torch.cos(args)], dim=-1)  # (B, D)
 
 class UNet(nn.Module):
 
@@ -92,12 +105,12 @@ class UNet(nn.Module):
     ):
         super().__init__()
 
-        E = config.n_t_emb
+        self.config = config
+        D = config.n_t_emb
         self.t_mlp = nn.Sequential(
-            nn.Embedding(config.T, config.n_t_emb),
-            nn.Linear(E, E<<2),
+            nn.Linear(D, D<<2),
             config.act(),
-            nn.Linear(E<<2, E)
+            nn.Linear(D<<2, D)
         )
 
         chs = [ch_base*m for m in ch_mults]
@@ -122,7 +135,8 @@ class UNet(nn.Module):
 
     def forward(self, x, t):
         # x: (B, 1, 28, 28), t: (B,) on MNIST
-        t = self.t_mlp(t)       # (B, E)
+        t_emb = SinusPosEmb(t, self.config)  # (B, D)
+        t = self.t_mlp(t_emb)       # (B, D)
         x = self.init_conv(x)   # (B, c0, 28, 28)  
 
         x, skip1 = self.down1(x, t) # (B, c0, 14, 14), skip1: (B, c0, 28, 28)

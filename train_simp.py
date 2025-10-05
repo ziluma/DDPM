@@ -18,7 +18,7 @@ elif torch.backends.mps.is_available():
     device = 'mps'
 torch.manual_seed(666)
 
-lr = 1e-2
+lr = 1e-3
 weight_decay = 1e-4
 
 transform = transforms.Compose([
@@ -27,7 +27,7 @@ transform = transforms.Compose([
 ])
 
 train_set = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-train_loader = DataLoader(train_set, batch_size=64, shuffle=True)
+train_loader = DataLoader(train_set, batch_size=128, shuffle=True)
 
 model = UNet(config).to(device)
 diffuser = Diffuser(model, config, device)
@@ -39,7 +39,7 @@ sample_dir = './samples'
 os.makedirs(sample_dir, exist_ok=True)
 os.makedirs(check_dir, exist_ok=True)
 
-n_epochs = 10
+n_epochs = 20
 global_step = 0
 for epoch in range(1, n_epochs+1):
     model.train()
@@ -56,6 +56,7 @@ for epoch in range(1, n_epochs+1):
         global_step += 1
 
     with torch.no_grad():
+        if epoch%5 != 0: continue
         samples = diffuser.sample(16)
         samples = (samples + 1.) / 2.
         grid = vutils.make_grid(samples, nrow=4)
