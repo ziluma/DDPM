@@ -10,6 +10,7 @@ from model import UNet, Diffuser, DiffusionConfig
 
 
 config = DiffusionConfig()
+config.T = 1000
 
 device = 'cpu'
 if torch.cuda.is_available():
@@ -39,7 +40,7 @@ sample_dir = './samples'
 os.makedirs(sample_dir, exist_ok=True)
 os.makedirs(check_dir, exist_ok=True)
 
-n_epochs = 20
+n_epochs = 30
 global_step = 0
 for epoch in range(1, n_epochs+1):
     model.train()
